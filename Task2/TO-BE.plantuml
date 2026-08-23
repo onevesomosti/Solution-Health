@@ -1,0 +1,114 @@
+@startuml
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+'LAYOUT_LEFT_RIGHT()
+
+title Контекстная диаграмма целевой архитектуры "Здоровье+"
+
+'Пользователи
+
+Person(patient, "Пациент", "Записывается на прием, оплачивает услуги, получает результаты анализов")
+
+Person(doctor, "Врач", "Управляет расписанием, просматривает анализы пациентов")
+
+Person(labAssistant, "Лаборант", "Просматривает результаты анализов в LIS (контроль)")
+
+
+'Клиентские приложения
+
+System(mobileApp, "Мобильное приложение", "Запись, оплата, полисы ДМС, результаты анализов, уведомления")
+
+System(webPortal, "Веб-портал", "Текущий интерфейс для пациентов, врачей и администраторов")
+
+
+'Новый интеграционный слой
+
+System(apiGateway, "API Gateway", "Единая внешняя точка входа: маршрутизация, JWT, rate limiting, Idempotency-Key")
+
+System(identityProvider, "Identity Provider", "OIDC / OAuth2, аутентификация пациентов и выдача токенов")
+
+System(integrationService, "Integration / Anti-Corruption Layer", "Изоляция нестабильных контрактов и протоколов Legacy")
+
+System(eventBroker, "Event Broker", "Асинхронный обмен бизнес-событиями, гарантии доставки, повторная обработка")
+
+
+'Существующие системы
+
+System(notificationSystem, "Уведомления", "RabbitMQ")
+
+System(paymentGateway, "Платёжный шлюз", "Внешний REST API")
+
+System(scheduleSystem, "Расписание", "REST API + PostgreSQL")
+
+System(policySystem, "1С: Полисы", "HTTP-шлюз")
+
+System(crm, "CRM", "Микросервис на Java, REST")
+
+System(lis, "LIS (лабораторная)", "SOAP / FTP")
+
+
+'Пользователи → приложения
+
+Rel(patient, mobileApp, "Запись, оплата, результаты, ДМС", "HTTPS")
+
+Rel(patient, webPortal, "Записывается", "HTTPS")
+
+Rel(doctor, webPortal, "Управляет расписанием (слоты, отмены/переносы), просматривает анализы", "HTTPS")
+
+Rel(labAssistant, lis, "Просматривает результаты анализов (чтение)", "UI / API")
+
+
+'Аутентификация
+
+Rel(mobileApp, identityProvider, "Аутентификация пациента", "OIDC / OAuth2")
+
+Rel(identityProvider, mobileApp, "Access Token", "JWT")
+
+
+'Мобильный канал
+
+Rel(mobileApp, apiGateway, "Запись, оплата, анализы, полисы", "HTTPS / REST + JWT")
+
+Rel(apiGateway, scheduleSystem, "Слоты, создание/отмена записи", "REST / Idempotency-Key")
+
+Rel(apiGateway, crm, "Карточка пациента, результаты анализов", "REST")
+
+Rel(apiGateway, paymentGateway, "Проведение/проверка оплаты", "REST / Idempotency-Key")
+
+Rel(apiGateway, integrationService, "Операции с полисами", "REST")
+
+
+'Legacy / Anti-Corruption Layer
+
+Rel(integrationService, policySystem, "Проверка и привязка полиса", "HTTP")
+
+Rel(lis, integrationService, "Результаты анализов", "REST / SOAP")
+
+Rel(integrationService, eventBroker, "AnalysisResultReceived", "Pub/Sub")
+
+
+'Событийные потоки
+
+Rel(scheduleSystem, eventBroker, "AppointmentCreated / AppointmentChanged", "Pub/Sub")
+
+Rel(eventBroker, crm, "AnalysisResultReceived", "Асинхронно")
+
+Rel(eventBroker, notificationSystem, "События записи / анализов / оплаты", "Асинхронно")
+
+Rel(notificationSystem, patient, "Push / SMS", "асинхронно")
+
+
+'Существующие связи веб-портала
+
+Rel(webPortal, notificationSystem, "Отправить уведомление (асинхронно)", "AMQP")
+
+Rel(webPortal, paymentGateway, "Оплата (синхронно)", "REST")
+
+Rel(webPortal, scheduleSystem, "Запись/слоты (синхронно)", "REST")
+
+Rel(webPortal, policySystem, "Проверка полиса (синхронно)", "HTTP")
+
+Rel(webPortal, crm, "Синхронизация данных", "REST")
+
+@enduml
